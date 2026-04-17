@@ -24,10 +24,8 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
     const initializeAuth = async () => {
       try {
         await initAuth()
-        setLoading(false)
       } catch (error) {
         console.error('Failed to initialize Firebase auth:', error)
-        setLoading(false)
       }
     }
 
@@ -37,19 +35,27 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
     const unsubscribe = subscribeToAuthState((userData) => {
       setUser(userData)
       setLoading(false)
+      console.log('Auth state updated:', userData)
     })
 
     // Also track Firebase user for some use cases
-    const { onAuthStateChanged } = require('firebase/auth')
-    const { auth } = require('@/lib/firebase/config')
-    
-    const unsubscribeFirebase = onAuthStateChanged(auth, (fUser: FirebaseUser | null) => {
-      setFirebaseUser(fUser)
-    })
+    try {
+      const { onAuthStateChanged } = require('firebase/auth')
+      const { auth } = require('@/lib/firebase/config')
+      
+      const unsubscribeFirebase = onAuthStateChanged(auth, (fUser: FirebaseUser | null) => {
+        setFirebaseUser(fUser)
+      })
 
-    return () => {
-      unsubscribe()
-      unsubscribeFirebase()
+      return () => {
+        unsubscribe()
+        unsubscribeFirebase()
+      }
+    } catch (error) {
+      console.error('Failed to set up Firebase listener:', error)
+      return () => {
+        unsubscribe()
+      }
     }
   }, [])
 
