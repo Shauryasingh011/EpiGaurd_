@@ -35,7 +35,6 @@ export default function Home() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [showApiGuide, setShowApiGuide] = useState(false)
   const profileRef = useRef<HTMLDivElement | null>(null)
 
   // Redirect to sign-in if not authenticated
@@ -114,10 +113,6 @@ export default function Home() {
 
     toast("Frontend integration ready", {
       description: "Your backend teammate can start in services/api.ts, services/authService.ts, and services/dashboardService.ts.",
-      action: {
-        label: "View",
-        onClick: () => setShowApiGuide(true),
-      },
     })
     window.sessionStorage.setItem("epiguard_ui_welcome", "1")
   }, [])
@@ -244,13 +239,6 @@ export default function Home() {
             <ThemeToggle />
             <TelegramBotButton />
             <InteractiveMapModalButton />
-            <button
-              type="button"
-              onClick={() => setShowApiGuide(true)}
-              className="hidden rounded-xl border border-border bg-card/70 px-3 py-2 text-xs font-medium text-foreground transition hover:bg-accent/10 md:block"
-            >
-              API Handoff
-            </button>
 
             <div className="relative" ref={profileRef}>
               {isAuthenticated ? (
@@ -323,52 +311,6 @@ export default function Home() {
           )}
         </div>
       </main>
-
-      <AnimatePresence>
-        {showApiGuide ? (
-          <motion.div
-            className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setShowApiGuide(false)}
-          >
-            <motion.div
-              className="glass-panel absolute right-4 top-4 w-[min(92vw,28rem)] rounded-[28px] p-6"
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 30 }}
-              transition={{ duration: 0.22 }}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.22em] text-muted-foreground">Backend handoff</p>
-                  <h3 className="mt-2 text-2xl font-semibold text-primary">API integration points</h3>
-                </div>
-                <button type="button" onClick={() => setShowApiGuide(false)} className="rounded-full border border-white/10 p-2 text-slate-300 transition hover:bg-white/5">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="mt-5 space-y-4 text-sm text-muted-foreground">
-                <div className="rounded-2xl border border-border bg-card/55 p-4">
-                  <p className="font-medium text-primary">`services/api.ts`</p>
-                  <p className="mt-1">Base request wrapper. Add your real base URL and auth headers here.</p>
-                </div>
-                <div className="rounded-2xl border border-border bg-card/55 p-4">
-                  <p className="font-medium text-primary">`services/authService.ts`</p>
-                  <p className="mt-1">Mock login lives here now. Replace it with your backend `/auth/login` endpoint.</p>
-                </div>
-                <div className="rounded-2xl border border-border bg-card/55 p-4">
-                  <p className="font-medium text-primary">`services/dashboardService.ts`</p>
-                  <p className="mt-1">Ready to receive overview widgets and summary stats from the backend.</p>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
 
       <AIAssistantWidget />
     </div>
