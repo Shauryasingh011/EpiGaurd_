@@ -9,6 +9,7 @@ import {
   getToken,
 } from '@/lib/auth'
 import { saveUser } from '@/lib/firebase/firestore'
+import { setCookie } from '@/lib/cookie'
 
 export type LoginPayload = {
   email: string
@@ -41,6 +42,7 @@ export async function loginUser(payload: LoginPayload): Promise<LoginResponse> {
   try {
     const user = await signIn(payload.email, payload.password)
     const token = await getToken()
+    setCookie('__firebase_token__', token, 7)
 
     return {
       success: true,
@@ -73,6 +75,7 @@ export async function registerUser(payload: SignUpPayload): Promise<SignUpRespon
     }
 
     const token = await getToken()
+    setCookie('__firebase_token__', token, 7)
 
     return {
       success: true,
@@ -97,6 +100,7 @@ export async function loginWithGoogle(): Promise<LoginResponse> {
   try {
     const user = await signInGoogle()
     const token = await getToken()
+    setCookie('__firebase_token__', token, 7)
 
     return {
       success: true,
@@ -168,6 +172,8 @@ export async function loginWithFacebook(): Promise<LoginResponse> {
 export async function logoutUser(): Promise<void> {
   try {
     await logoutAuth()
+    // Clear the Firebase token cookie
+    setCookie('__firebase_token__', '', 0)
   } catch (error) {
     console.error('Logout failed:', error)
     throw new Error('Failed to logout')
