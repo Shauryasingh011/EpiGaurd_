@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
-
-import { prisma } from '@/lib/prisma'
+import { getAdminFirestore } from '@/lib/firebase/admin'
 import { extractStartCode, telegramSendMessage, type TelegramWebhookUpdate } from '@/lib/telegram'
 
 export const runtime = 'nodejs'
@@ -83,39 +82,43 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true })
   }
 
-  const record = await prisma.telegramLinkCode.findUnique({ where: { code } })
-  if (!record) {
+  const db = getAdminFirestore()
+  const linkCodeDocs = await db.collection('telegramLinkCodes').where('code', '==', code).get()
+
+  if (linkCodeDocs.empty) {
     return NextResponse.json({ ok: true })
   }
 
-  if (record.expiresAt.getTime() < Date.now()) {
-    await prisma.telegramLinkCode.delete({ where: { id: record.id } }).catch(() => {})
+  const record = linkCodeDocs.docs[0]
+  const recordData = record.data()
+
+  if (recordData.expiresAt.toDate?.().getTime?.() < Date.now()) {
+    await record.ref.delete().catch(() => {})
     return NextResponse.json({ ok: true })
   }
 
-  await prisma.$transaction([
-    prisma.user.update({
-      where: { id: record.userId },
-      data: {
-        telegramChatId: chatId,
-        telegramUsername: username ?? null,
-        telegramOptIn: true,
-        telegramOptInAt: new Date(),
-      },
-    }),
-    prisma.telegramLinkCode.delete({ where: { id: record.id } }),
-  ])
+  const userId = recordData.userId
+
+  // Update user and delete link code in Firestore
+  const batch = db.batch()
+  batch.update(db.collection('users').doc(userId), {
+    telegramChatId: chatId,
+    telegramUsername: username ?? null,
+    telegramOptIn: true,
+    telegramOptInAt: new Date(),
+    updatedAt: new Date(),
+  })
+  batch.delete(record.ref)
+  await batch.commit()
 
   // Best-effort: send an immediate state update after linking.
   try {
     const baseUrl = getBaseUrl()
     if (baseUrl) {
-      const settings = await prisma.userAlertSettings.findUnique({
-        where: { userId: record.userId },
-        select: { selectedState: true },
-      })
+      const settingsDoc = await db.collection('userAlertSettings').doc(userId).get()
+      const settingsData = settingsDoc.data()
 
-      const selectedState = (settings?.selectedState ?? '').trim()
+      const selectedState = (settingsData?.selectedState ?? '').trim()
       if (selectedState) {
         const digest = await fetchDigest(baseUrl, selectedState)
         if (digest?.ok && digest.state && typeof digest.riskScore === 'number') {
@@ -128,7 +131,6 @@ export async function POST(req: Request) {
           const envLine = env
             ? `Env: ${Math.round(env.temp)}°C, ${Math.round(env.humidity)}% humidity, PM2.5 ${Math.round(env.pm25)}, Water ${escapeHtml(env.waterQuality)}`
             : null
-
 
           const link = 'https://epigaurd.vercel.app/'
 

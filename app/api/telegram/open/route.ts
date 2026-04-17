@@ -1,11 +1,7 @@
 import { NextResponse } from 'next/server'
-import { headers } from 'next/headers'
-import { getServerSession } from 'next-auth'
-
-import { authOptions } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
-import { buildTelegramStartLink } from '@/lib/telegram'
-import { telegramSendMessage } from '@/lib/telegram'
+import { headers, cookies } from 'next/headers'
+import { verifyAuthToken, getAdminFirestore } from '@/lib/firebase/admin'
+import { buildTelegramStartLink, telegramSendMessage } from '@/lib/telegram'
 import { buildPreventions } from '@/lib/preventions'
 
 export const runtime = 'nodejs'
@@ -82,38 +78,52 @@ function redirectToStartLink(req: Request, startLink: string): NextResponse {
 }
 
 export async function GET(req: Request) {
-  const session = await getServerSession(authOptions)
-  const userId = session?.user?.id
-  if (!userId) {
-    // Let middleware redirect the user to sign-in (auth is required to send the update).
+  // Get Firebase token from cookies
+  const cookieStore = await cookies()
+  const token = cookieStore.get('__firebase_token__')?.value
+
+  if (!token) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      telegramChatId: true,
-      telegramOptIn: true,
-      alertSettings: {
-        select: { selectedState: true },
-      },
-    },
-  })
+  let userId: string
+  try {
+    const decodedToken = await verifyAuthToken(token)
+    userId = decodedToken.uid
+  } catch (error) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
-  if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  const db = getAdminFirestore()
+  const userDoc = await db.collection('users').doc(userId).get()
 
-  const state = (user.alertSettings?.selectedState ?? '').trim()
+  if (!userDoc.exists) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  }
+
+  const userData = userDoc.data()
+  const state = (userData?.selectedState ?? '').trim()
+  const telegramChatId = userData?.telegramChatId
+  const telegramOptIn = userData?.telegramOptIn
 
   // If the user hasn't linked Telegram yet, open the bot using a per-user /start link
-  // so the webhook can associate this Telegram chat with the signed-in user.
-  if (!user.telegramChatId || !user.telegramOptIn) {
+  if (!telegramChatId || !telegramOptIn) {
     if (!state) return redirectToBot(req)
 
-    await prisma.telegramLinkCode.deleteMany({ where: { userId } })
+    // Delete old link codes for this user
+    const oldCodes = await db.collection('telegramLinkCodes').where('userId', '==', userId).get()
+    const batch = db.batch()
+    oldCodes.docs.forEach((doc) => batch.delete(doc.ref))
+    await batch.commit()
 
     const code = generateCode()
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
-    await prisma.telegramLinkCode.create({ data: { userId, code, expiresAt } })
+    await db.collection('telegramLinkCodes').add({
+      userId,
+      code,
+      expiresAt,
+      createdAt: new Date(),
+    })
 
     const startLink = buildTelegramStartLink(code)
     return redirectToStartLink(req, startLink)
@@ -121,7 +131,7 @@ export async function GET(req: Request) {
 
   if (!state) {
     await telegramSendMessage({
-      chatId: user.telegramChatId,
+      chatId: telegramChatId,
       parseMode: 'HTML',
       text:
         `EpiGuard Update\n` +
@@ -136,7 +146,7 @@ export async function GET(req: Request) {
   const disease = await fetchDiseaseDataFromThisHost()
   if (!disease) {
     await telegramSendMessage({
-      chatId: user.telegramChatId,
+      chatId: telegramChatId,
       parseMode: 'HTML',
       text:
         `EpiGuard Update\n` +
@@ -153,7 +163,7 @@ export async function GET(req: Request) {
 
   if (!match) {
     await telegramSendMessage({
-      chatId: user.telegramChatId,
+      chatId: telegramChatId,
       parseMode: 'HTML',
       text:
         `EpiGuard Update\n` +
@@ -193,7 +203,12 @@ export async function GET(req: Request) {
     `- ${escapeHtml(preventions[4] ?? '')}\n\n` +
     `Details: ${escapeHtml(link)}`
 
-  await telegramSendMessage({ chatId: user.telegramChatId, text, parseMode: 'HTML', disableWebPagePreview: true })
+  await telegramSendMessage({
+    chatId: telegramChatId,
+    text,
+    parseMode: 'HTML',
+    disableWebPagePreview: true,
+  })
 
   return redirectToBot(req)
 }

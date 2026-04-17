@@ -89,7 +89,7 @@ export default function Home() {
     }
 
     void run()
-  }, [status])
+  }, [isAuthenticated])
 
   useEffect(() => {
     if (!profileOpen) return
@@ -123,18 +123,18 @@ export default function Home() {
   }, [])
 
   const userLabel = useMemo(() => {
-    const name = session?.user?.name?.trim()
+    const name = user?.name?.trim()
     if (name) return name
-    const email = session?.user?.email?.trim()
+    const email = user?.email?.trim()
     if (email) return email
     return "Profile"
-  }, [session?.user?.email, session?.user?.name])
+  }, [user?.email, user?.name])
 
   const userInitial = useMemo(() => {
-    const source = session?.user?.name || session?.user?.email || ""
+    const source = user?.name || user?.email || ""
     const c = source.trim().charAt(0).toUpperCase()
     return c || "U"
-  }, [session?.user?.email, session?.user?.name])
+  }, [user?.email, user?.name])
 
   const navItems = useMemo(
     () => [
@@ -253,7 +253,7 @@ export default function Home() {
             </button>
 
             <div className="relative" ref={profileRef}>
-              {status === "authenticated" ? (
+              {isAuthenticated ? (
                 <button
                   type="button"
                   aria-label={userLabel}
@@ -306,7 +306,7 @@ export default function Home() {
         </div>
 
         <div className="p-4 md:p-8">
-          {status === "loading" ? (
+          {loading ? (
             <PageSkeleton />
           ) : (
             <AnimatePresence mode="wait">

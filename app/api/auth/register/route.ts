@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
-import bcrypt from 'bcryptjs'
-import { Prisma } from '@prisma/client'
-
-import { prisma } from '@/lib/prisma'
+import { createUserWithEmailAndPassword } from 'firebase/auth'
+import { auth } from '@/lib/firebase/config'
+import { saveUser } from '@/lib/firebase/firestore'
 
 export const runtime = 'nodejs'
 
@@ -13,83 +12,69 @@ type RegisterBody = {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as RegisterBody
-
-  const name = (body.name ?? '').toString().trim()
-  const email = (body.email ?? '').toString().trim().toLowerCase()
-  const password = (body.password ?? '').toString()
-
-  if (!email || !password) {
-    return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })
-  }
-
-  if (password.length < 8) {
-    return NextResponse.json(
-      { error: 'Password must be at least 8 characters.' },
-      { status: 400 },
-    )
-  }
-
   try {
-    const existing = await prisma.user.findUnique({ where: { email } })
-    if (existing) {
+    const body = (await req.json().catch(() => ({}))) as RegisterBody
+
+    const name = (body.name ?? '').toString().trim()
+    const email = (body.email ?? '').toString().trim().toLowerCase()
+    const password = (body.password ?? '').toString()
+
+    if (!email || !password) {
+      return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })
+    }
+
+    if (password.length < 8) {
+      return NextResponse.json(
+        { error: 'Password must be at least 8 characters.' },
+        { status: 400 },
+      )
+    }
+
+    // Create user in Firebase Auth
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+    const firebaseUser = userCredential.user
+
+    // Save user to Firestore
+    await saveUser({
+      id: firebaseUser.uid,
+      email: firebaseUser.email || '',
+      name: name || firebaseUser.displayName || null,
+      image: firebaseUser.photoURL || null,
+      emailVerified: firebaseUser.emailVerified,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    return NextResponse.json({
+      ok: true,
+      user: {
+        id: firebaseUser.uid,
+        email: firebaseUser.email,
+        name: name || null,
+        createdAt: new Date().toISOString(),
+      },
+    })
+  } catch (error: any) {
+    console.error('[register error]', error)
+
+    // Firebase auth error handling
+    if (error.code === 'auth/email-already-in-use') {
       return NextResponse.json(
         { error: 'An account with that email already exists.' },
         { status: 409 },
       )
     }
 
-    const passwordHash = await bcrypt.hash(password, 10)
-
-    const user = await prisma.user.create({
-      data: {
-        email,
-        name: name || null,
-        passwordHash,
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        createdAt: true,
-      },
-    })
-
-    return NextResponse.json({ ok: true, user })
-  } catch (err) {
-    const errorId = `reg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-
-    // Log full error server-side so you can inspect Vercel Function logs.
-    console.error(`[register] ${errorId}`, err)
-
-    // Handle common Prisma errors cleanly.
-    if (err instanceof Prisma.PrismaClientKnownRequestError) {
-      if (err.code === 'P2002') {
-        return NextResponse.json(
-          { error: 'An account with that email already exists.', errorId },
-          { status: 409 },
-        )
-      }
+    if (error.code === 'auth/invalid-email') {
+      return NextResponse.json({ error: 'Invalid email address.' }, { status: 400 })
     }
 
-    const message = err instanceof Error ? err.message : ''
-    const isMissingTables = /no such table|SQLITE_ERROR/i.test(message)
-    const isDbUrlMisconfigured = /Invalid DATABASE_URL|DATABASE_URL/i.test(message)
-
-    // Avoid leaking internals to the browser in production, but still provide a useful hint.
-    const hint = isMissingTables
-      ? 'Database tables are missing. Run Prisma migrations against the production database.'
-      : isDbUrlMisconfigured
-        ? 'Database configuration is missing or invalid in production.'
-        : undefined
+    if (error.code === 'auth/weak-password') {
+      return NextResponse.json({ error: 'Password is too weak.' }, { status: 400 })
+    }
 
     return NextResponse.json(
-      {
-        error: 'Registration failed.',
-        errorId,
-        ...(hint ? { hint } : {}),
-        ...(process.env.NODE_ENV !== 'production' ? { details: message } : {}),
-      },
+      { error: error.message || 'Registration failed.' },
       { status: 500 },
     )
   }

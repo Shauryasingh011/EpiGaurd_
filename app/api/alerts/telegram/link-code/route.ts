@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-
-import { authOptions } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
+import { cookies } from 'next/headers'
+import { verifyAuthToken, getAdminFirestore } from '@/lib/firebase/admin'
 import { buildTelegramStartLink, telegramBotUsername } from '@/lib/telegram'
 
 export const runtime = 'nodejs'
@@ -12,35 +10,45 @@ function generateCode(): string {
   return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10)
 }
 
+async function getUserIdFromToken(): Promise<string | null> {
+  const cookieStore = await cookies()
+  const token = cookieStore.get('__firebase_token__')?.value
+
+  if (!token) return null
+
+  try {
+    const decodedToken = await verifyAuthToken(token)
+    return decodedToken.uid
+  } catch (error) {
+    return null
+  }
+}
+
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  const userId = session?.user?.id
+  const userId = await getUserIdFromToken()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      telegramChatId: true,
-      telegramUsername: true,
-      telegramOptIn: true,
-      alertSettings: true,
-    },
-  })
+  const db = getAdminFirestore()
+  const userDoc = await db.collection('users').doc(userId).get()
 
-  if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  if (!userDoc.exists) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
+  const userData = userDoc.data()
   const botUsername = telegramBotUsername()
   const hasBot = Boolean(botUsername)
+
+  const alertSettingsDoc = await db.collection('userAlertSettings').doc(userId).get()
+  const alertSettings = alertSettingsDoc.data()
 
   return NextResponse.json({
     telegram: {
       hasBot,
       botUsername: botUsername || null,
-      chatIdLinked: Boolean(user.telegramChatId),
-      telegramUsername: user.telegramUsername,
-      telegramOptIn: user.telegramOptIn,
+      chatIdLinked: Boolean(userData?.telegramChatId),
+      telegramUsername: userData?.telegramUsername,
+      telegramOptIn: userData?.telegramOptIn,
     },
-    settings: user.alertSettings,
+    settings: alertSettings,
   })
 }
 
@@ -51,43 +59,51 @@ type CreateLinkCodeBody = {
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions)
-  const userId = session?.user?.id
+  const userId = await getUserIdFromToken()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = (await req.json().catch(() => ({}))) as CreateLinkCodeBody
-
-  // Save alert settings updates (optional, same endpoint for convenience)
   const selectedState = (body.selectedState ?? '').toString().trim()
 
   if (selectedState && selectedState.length > 80) {
     return NextResponse.json({ error: 'Invalid state.' }, { status: 400 })
   }
 
-  const existing = await prisma.userAlertSettings.findUnique({ where: { userId } })
-  await prisma.userAlertSettings.upsert({
-    where: { userId },
-    create: {
+  const db = getAdminFirestore()
+
+  // Save alert settings updates
+  const alertSettingsRef = db.collection('userAlertSettings').doc(userId)
+  const existingSettings = await alertSettingsRef.get()
+
+  await alertSettingsRef.set(
+    {
       userId,
-      selectedState: selectedState || existing?.selectedState || '',
+      selectedState: selectedState || existingSettings.data()?.selectedState || '',
       browserEnabled: typeof body.browserEnabled === 'boolean' ? body.browserEnabled : true,
       dailyDigestEnabled: typeof body.dailyDigestEnabled === 'boolean' ? body.dailyDigestEnabled : true,
+      updatedAt: new Date(),
     },
-    update: {
-      ...(selectedState ? { selectedState } : {}),
-      ...(typeof body.browserEnabled === 'boolean' ? { browserEnabled: body.browserEnabled } : {}),
-      ...(typeof body.dailyDigestEnabled === 'boolean' ? { dailyDigestEnabled: body.dailyDigestEnabled } : {}),
-    },
-  })
+    { merge: true },
+  )
 
   // Create a one-time link code
-  await prisma.telegramLinkCode.deleteMany({ where: { userId } })
+  const codesQuery = await db
+    .collection('telegramLinkCodes')
+    .where('userId', '==', userId)
+    .get()
+
+  const batch = db.batch()
+  codesQuery.docs.forEach((doc) => batch.delete(doc.ref))
+  await batch.commit()
 
   const code = generateCode()
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
 
-  await prisma.telegramLinkCode.create({
-    data: { userId, code, expiresAt },
+  await db.collection('telegramLinkCodes').add({
+    userId,
+    code,
+    expiresAt,
+    createdAt: new Date(),
   })
 
   const startLink = buildTelegramStartLink(code)

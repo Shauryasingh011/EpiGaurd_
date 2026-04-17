@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
-
-import { prisma } from '@/lib/prisma'
+import { getAdminFirestore } from '@/lib/firebase/admin'
 import { splitBullets } from '@/lib/otp'
 import { telegramSendMessage } from '@/lib/telegram'
 
@@ -116,17 +115,11 @@ export async function GET(req: Request) {
     )
   }
 
-  const settings = await prisma.userAlertSettings.findMany({
-    where: { telegramEnabled: true },
-    include: {
-      user: {
-        select: {
-          telegramChatId: true,
-          telegramOptIn: true,
-        },
-      },
-    },
-  })
+  const db = getAdminFirestore()
+  const settings = await db
+    .collection('userAlertSettings')
+    .where('telegramEnabled', '==', true)
+    .get()
 
   const byState = new Map<string, DiseaseDataApiResponse['states'][number]>()
   for (const s of disease.states ?? []) {
@@ -137,9 +130,15 @@ export async function GET(req: Request) {
   let skipped = 0
   const now = Date.now()
 
-  for (const row of settings) {
-    const chatId = row.user.telegramChatId
-    if (!chatId || !row.user.telegramOptIn) {
+  for (const settingsDoc of settings.docs) {
+    const row = settingsDoc.data()
+    const userId = row.userId
+
+    const userDoc = await db.collection('users').doc(userId).get()
+    const userData = userDoc.data()
+
+    const chatId = userData?.telegramChatId
+    if (!chatId || !userData?.telegramOptIn) {
       skipped++
       continue
     }
@@ -160,7 +159,8 @@ export async function GET(req: Request) {
       continue
     }
 
-    const last = row.lastAlertSentAt?.getTime() ?? 0
+    const lastAlertTime = row.lastAlertSentAt?.toDate?.() || row.lastAlertSentAt
+    const last = lastAlertTime?.getTime?.() ?? 0
     const cooldownMs = (row.cooldownMinutes ?? 60) * 60 * 1000
     if (last && now - last < cooldownMs) {
       skipped++
@@ -199,9 +199,8 @@ export async function GET(req: Request) {
       disableWebPagePreview: true,
     })
 
-    await prisma.userAlertSettings.update({
-      where: { id: row.id },
-      data: { lastAlertSentAt: new Date() },
+    await settingsDoc.ref.update({
+      lastAlertSentAt: new Date(),
     })
 
     sent++

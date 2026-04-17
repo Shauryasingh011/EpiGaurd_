@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
-
-import { prisma } from '@/lib/prisma'
+import { getAdminFirestore } from '@/lib/firebase/admin'
 import { telegramSendMessage } from '@/lib/telegram'
 import { buildPreventions } from '@/lib/preventions'
 
@@ -108,17 +107,11 @@ export async function GET(req: Request) {
     )
   }
 
-  const settings = await prisma.userAlertSettings.findMany({
-    where: { dailyDigestEnabled: true },
-    include: {
-      user: {
-        select: {
-          telegramChatId: true,
-          telegramOptIn: true,
-        },
-      },
-    },
-  })
+  const db = getAdminFirestore()
+  const settings = await db
+    .collection('userAlertSettings')
+    .where('dailyDigestEnabled', '==', true)
+    .get()
 
   const byState = new Map<string, DiseaseDataApiResponse['states'][number]>()
   for (const s of disease.states ?? []) byState.set(s.state, s)
@@ -127,21 +120,27 @@ export async function GET(req: Request) {
   let sent = 0
   let skipped = 0
 
-  for (const row of settings) {
-    const chatId = row.user.telegramChatId
-    if (!chatId || !row.user.telegramOptIn) {
+  for (const settingsDoc of settings.docs) {
+    const settingsData = settingsDoc.data()
+    const userId = settingsData.userId
+
+    const userDoc = await db.collection('users').doc(userId).get()
+    const userData = userDoc.data()
+
+    const chatId = userData?.telegramChatId
+    if (!chatId || !userData?.telegramOptIn) {
       skipped++
       continue
     }
 
-    const state = (row.selectedState || '').trim()
+    const state = (settingsData.selectedState || '').trim()
     if (!state) {
       skipped++
       continue
     }
 
-    const last = row.lastDailyDigestSentAt
-    if (last && isSameUtcDay(last, now)) {
+    const last = settingsData.lastDailyDigestSentAt?.toDate?.() || settingsData.lastDailyDigestSentAt
+    if (last && isSameUtcDay(new Date(last), now)) {
       skipped++
       continue
     }
@@ -182,9 +181,8 @@ export async function GET(req: Request) {
 
     await telegramSendMessage({ chatId, text, parseMode: 'HTML', disableWebPagePreview: true })
 
-    await prisma.userAlertSettings.update({
-      where: { id: row.id },
-      data: { lastDailyDigestSentAt: now },
+    await settingsDoc.ref.update({
+      lastDailyDigestSentAt: now,
     })
 
     sent++

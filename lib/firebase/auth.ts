@@ -147,15 +147,3 @@ export async function getAuthToken(): Promise<string> {
   return await user.getIdToken()
 }
 
-/**
- * Verify auth token (call from API routes)
- */
-export async function verifyAuthToken(token: string) {
-  const admin = await import('firebase-admin')
-  try {
-    const decodedToken = await admin.auth().verifyIdToken(token)
-    return decodedToken
-  } catch (error) {
-    throw new Error('Invalid auth token')
-  }
-}
