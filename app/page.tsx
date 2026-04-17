@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Activity, Droplet, Users, Ambulance, Brain, BarChart3, Menu, X, MapPin, PanelLeft, Settings } from "lucide-react"
+import { Activity, Droplet, Users, Ambulance, Brain, BarChart3, Menu, X, MapPin, PanelLeft, Settings, LogOut } from "lucide-react"
 import { AnimatePresence, motion } from "framer-motion"
-import { signOut, useSession } from "next-auth/react"
+import { useRouter } from "next/navigation"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
@@ -13,6 +13,8 @@ import { PageSkeleton } from "@/components/ui/page-skeleton"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { notificationService } from "@/lib/notifications"
 import { preferencesStorage } from "@/lib/storage"
+import { useAuth } from "@/components/auth-session-provider"
+import { signOut } from "@/lib/auth"
 import Dashboard from "./dashboard"
 import { WaterQualityPage } from "@/components/water-quality-page"
 import { CommunityReportingPage } from "@/components/community-reporting-page"
@@ -27,7 +29,8 @@ type PageType = "dashboard" | "mylocation" | "water" | "community" | "healthcare
 
 export default function Home() {
   const { t, i18n } = useTranslation()
-  const { data: session, status } = useSession()
+  const router = useRouter()
+  const { user, isAuthenticated, loading } = useAuth()
   const [currentPage, setCurrentPage] = useState<PageType>("dashboard")
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
@@ -35,8 +38,15 @@ export default function Home() {
   const [showApiGuide, setShowApiGuide] = useState(false)
   const profileRef = useRef<HTMLDivElement | null>(null)
 
+  // Redirect to sign-in if not authenticated
   useEffect(() => {
-    if (status !== "authenticated") return
+    if (!loading && !isAuthenticated) {
+      router.push('/sign-in')
+    }
+  }, [isAuthenticated, loading, router])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
     if (typeof window === "undefined") return
 
     const run = async () => {
@@ -250,9 +260,9 @@ export default function Home() {
                   onClick={() => setProfileOpen((v) => !v)}
                   className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border bg-card/75 shadow-sm transition-colors hover:bg-accent/10 hover:shadow-md"
                 >
-                  {session?.user?.image ? (
+                  {user?.image ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={session.user.image} alt="" className="h-full w-full object-cover" />
+                    <img src={user.image} alt="" className="h-full w-full object-cover" />
                   ) : (
                     <span className="text-base font-bold text-foreground">{userInitial}</span>
                   )}
@@ -263,18 +273,23 @@ export default function Home() {
                 </a>
               )}
 
-              {profileOpen && status === "authenticated" && (
+              {profileOpen && isAuthenticated && (
                 <div className="absolute right-0 mt-2 w-72 overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl backdrop-blur-xl">
                   <div className="px-4 py-3">
-                    <div className="truncate text-base font-semibold">{session?.user?.name || "Account"}</div>
-                    {session?.user?.email && <div className="truncate text-sm text-muted-foreground">{session.user.email}</div>}
+                    <div className="truncate text-base font-semibold">{user?.name || "Account"}</div>
+                    {user?.email && <div className="truncate text-sm text-muted-foreground">{user.email}</div>}
                   </div>
                   <div className="border-t border-border" />
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       setProfileOpen(false)
-                      void signOut({ callbackUrl: "/sign-in" })
+                      try {
+                        await signOut()
+                        router.push("/sign-in")
+                      } catch (error) {
+                        toast.error("Failed to sign out")
+                      }
                     }}
                     className="w-full px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent/10"
                   >

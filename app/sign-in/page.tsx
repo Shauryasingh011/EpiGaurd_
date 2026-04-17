@@ -3,21 +3,26 @@
 import { Suspense, useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ArrowRight, Leaf, ShieldCheck, Wind } from 'lucide-react'
+import { ArrowRight, Leaf, ShieldCheck, Wind, Github, Chrome } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { LoginLottieBackground } from '@/components/login/login-lottie-background'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { loginUser } from '@/services/authService'
+import {
+  loginUser,
+  loginWithGoogle,
+  loginWithGithub,
+  loginWithFacebook,
+} from '@/services/authService'
 
 function SignInPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const callbackUrl = searchParams.get('callbackUrl') || '/'
 
-  const [email, setEmail] = useState('demo@epiguard.in')
-  const [password, setPassword] = useState('password123')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
@@ -42,7 +47,7 @@ function SignInPageInner() {
     [],
   )
 
-  const onSubmit = async (event: React.FormEvent) => {
+  const handleEmailPasswordSignIn = async (event: React.FormEvent) => {
     event.preventDefault()
     setFormError(null)
 
@@ -55,31 +60,76 @@ function SignInPageInner() {
     startTransition(() => {
       void (async () => {
         try {
-          const result = await loginUser({ email: trimmedEmail, password })
-
-          if (!result.success) {
-            throw new Error('Login failed')
-          }
-
-          if (typeof window !== 'undefined') {
-            // BACKEND INTEGRATION POINT:
-            // Replace this localStorage session with your real auth token/session handling.
-            localStorage.setItem(
-              'epiguard_mock_session',
-              JSON.stringify({
-                token: result.token,
-                user: result.user,
-              }),
-            )
-          }
-
+          await loginUser({ email: trimmedEmail, password })
           toast.success('Login successful', {
-            description: 'Mock session created. Replace authService.ts with your real backend login API.',
+            description: 'Welcome to EpiGuard!',
           })
-
           router.push(callbackUrl)
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unable to sign in.'
+          setFormError(message)
+          toast.error('Login failed', {
+            description: message,
+          })
+        }
+      })()
+    })
+  }
+
+  const handleGoogleSignIn = async () => {
+    setFormError(null)
+    startTransition(() => {
+      void (async () => {
+        try {
+          await loginWithGoogle()
+          toast.success('Login successful', {
+            description: 'Welcome to EpiGuard!',
+          })
+          router.push(callbackUrl)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Google login failed'
+          setFormError(message)
+          toast.error('Login failed', {
+            description: message,
+          })
+        }
+      })()
+    })
+  }
+
+  const handleGithubSignIn = async () => {
+    setFormError(null)
+    startTransition(() => {
+      void (async () => {
+        try {
+          await loginWithGithub()
+          toast.success('Login successful', {
+            description: 'Welcome to EpiGuard!',
+          })
+          router.push(callbackUrl)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'GitHub login failed'
+          setFormError(message)
+          toast.error('Login failed', {
+            description: message,
+          })
+        }
+      })()
+    })
+  }
+
+  const handleFacebookSignIn = async () => {
+    setFormError(null)
+    startTransition(() => {
+      void (async () => {
+        try {
+          await loginWithFacebook()
+          toast.success('Login successful', {
+            description: 'Welcome to EpiGuard!',
+          })
+          router.push(callbackUrl)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Facebook login failed'
           setFormError(message)
           toast.error('Login failed', {
             description: message,
@@ -161,11 +211,52 @@ function SignInPageInner() {
               <p className="text-sm font-medium uppercase tracking-[0.24em] text-sky-100/60">Welcome back</p>
               <h2 className="text-3xl font-semibold text-[var(--butter)]">Sign in to EpiGuard</h2>
               <p className="text-sm leading-6 text-slate-200/72">
-                Smooth animated login with a mock API now, ready for real backend wiring later.
+                Use Firebase authentication for secure sign-in.
               </p>
             </div>
 
-            <form onSubmit={onSubmit} className="mt-8 space-y-5">
+            {/* OAuth Buttons */}
+            <div className="mt-8 space-y-3">
+              <Button
+                onClick={handleGoogleSignIn}
+                disabled={isPending}
+                className="h-11 w-full rounded-2xl border border-white/20 bg-slate-900/40 text-white backdrop-blur-xl transition hover:bg-slate-800/60"
+              >
+                <Chrome className="mr-2 h-4 w-4" />
+                Sign in with Google
+              </Button>
+              
+              <Button
+                onClick={handleGithubSignIn}
+                disabled={isPending}
+                className="h-11 w-full rounded-2xl border border-white/20 bg-slate-900/40 text-white backdrop-blur-xl transition hover:bg-slate-800/60"
+              >
+                <Github className="mr-2 h-4 w-4" />
+                Sign in with GitHub
+              </Button>
+              
+              <Button
+                onClick={handleFacebookSignIn}
+                disabled={isPending}
+                className="h-11 w-full rounded-2xl border border-white/20 bg-slate-900/40 text-white backdrop-blur-xl transition hover:bg-slate-800/60"
+              >
+                <svg className="mr-2 h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                </svg>
+                Sign in with Facebook
+              </Button>
+            </div>
+
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-white/10"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="bg-slate-950/80 px-2 text-slate-400">Or continue with email</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleEmailPasswordSignIn} className="space-y-5">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-sky-50/90">Email</label>
                 <Input
@@ -173,6 +264,7 @@ function SignInPageInner() {
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   autoComplete="email"
+                  placeholder="your@email.com"
                   className="login-input h-12 rounded-2xl text-[var(--butter)] placeholder:text-slate-300/35"
                 />
               </div>
@@ -184,6 +276,7 @@ function SignInPageInner() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   autoComplete="current-password"
+                  placeholder="••••••••"
                   className="login-input h-12 rounded-2xl text-[var(--butter)] placeholder:text-slate-300/35"
                 />
               </div>
@@ -199,18 +292,10 @@ function SignInPageInner() {
                 disabled={isPending}
                 className="h-12 w-full rounded-2xl bg-[linear-gradient(135deg,#60a5fa,#4f46e5_58%,#22c55e)] text-[var(--butter)] shadow-lg shadow-blue-950/30 transition hover:scale-[1.01] hover:shadow-xl"
               >
-                {isPending ? 'Entering dashboard...' : 'Sign in and continue'}
+                {isPending ? 'Signing in...' : 'Sign in and continue'}
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </form>
-
-            <div className="login-note mt-6 rounded-[24px] p-4 text-sm text-emerald-50/85">
-              <p className="font-medium">Backend developer note</p>
-              <p className="mt-1 leading-6 text-emerald-50/70">
-                Replace the mock `loginUser()` implementation in `services/authService.ts` with your real login
-                endpoint and token handling.
-              </p>
-            </div>
 
             <p className="mt-6 text-sm text-slate-300/72">
               Need an account?{' '}

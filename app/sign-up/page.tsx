@@ -1,13 +1,20 @@
 'use client'
 
-import { Suspense, useEffect, useState, useTransition } from 'react'
+import { Suspense, useState, useTransition } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
-import { getProviders, signIn } from 'next-auth/react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Chrome, Github } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  registerUser,
+  loginWithGoogle,
+  loginWithGithub,
+  loginWithFacebook,
+} from '@/services/authService'
 
 function AppLogo() {
   return (
@@ -22,37 +29,18 @@ function AppLogo() {
 }
 
 function SignUpPageInner() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const callbackUrl = searchParams.get('callbackUrl') || '/'
-
-  const [availableProviders, setAvailableProviders] = useState<Record<string, { id: string; name: string }>>({})
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const providers = await getProviders()
-      if (!providers || cancelled) return
-      const map: Record<string, { id: string; name: string }> = {}
-      for (const p of Object.values(providers)) {
-        map[p.id] = { id: p.id, name: p.name }
-      }
-      setAvailableProviders(map)
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const googleEnabled = Boolean(availableProviders.google)
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
-  const onSubmit = async (e: React.FormEvent) => {
+  const handleEmailSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
 
@@ -67,39 +55,96 @@ function SignUpPageInner() {
       return
     }
 
-    startTransition(async () => {
-      try {
-        const res = await fetch('/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name.trim(), email: trimmedEmail, password }),
-        })
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.')
+      return
+    }
 
-        if (!res.ok) {
-          const payload = (await res.json().catch(() => null)) as any
-          const details = typeof payload?.details === 'string' ? ` (${payload.details})` : ''
-          setError((payload?.error || 'Registration failed.') + details)
-          return
+    startTransition(() => {
+      void (async () => {
+        try {
+          await registerUser({
+            email: trimmedEmail,
+            password,
+            name: name.trim() || undefined,
+          })
+
+          toast.success('Account created successfully!', {
+            description: 'Redirecting to dashboard...',
+          })
+
+          router.push(callbackUrl)
+        } catch (e) {
+          const message = e instanceof Error ? e.message : 'Registration failed.'
+          setError(message)
+          toast.error('Registration failed', {
+            description: message,
+          })
         }
+      })()
+    })
+  }
 
-        const result = await signIn('credentials', {
-          email: trimmedEmail,
-          password,
-          callbackUrl,
-          redirect: false,
-        })
-
-        if (result?.error) {
-          setError(result.error === 'CredentialsSignin' ? 'Invalid email or password.' : result.error)
-          return
+  const handleGoogleSignUp = async () => {
+    setError(null)
+    startTransition(() => {
+      void (async () => {
+        try {
+          await loginWithGoogle()
+          toast.success('Account created successfully!', {
+            description: 'Redirecting to dashboard...',
+          })
+          router.push(callbackUrl)
+        } catch (e) {
+          const message = e instanceof Error ? e.message : 'Google sign-up failed'
+          setError(message)
+          toast.error('Sign-up failed', {
+            description: message,
+          })
         }
+      })()
+    })
+  }
 
-        // Use a hard navigation so we don't get stuck with a prefetched unauthenticated response
-        // that middleware redirects back to /sign-in.
-        window.location.assign(result?.url || callbackUrl)
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Registration failed.')
-      }
+  const handleGithubSignUp = async () => {
+    setError(null)
+    startTransition(() => {
+      void (async () => {
+        try {
+          await loginWithGithub()
+          toast.success('Account created successfully!', {
+            description: 'Redirecting to dashboard...',
+          })
+          router.push(callbackUrl)
+        } catch (e) {
+          const message = e instanceof Error ? e.message : 'GitHub sign-up failed'
+          setError(message)
+          toast.error('Sign-up failed', {
+            description: message,
+          })
+        }
+      })()
+    })
+  }
+
+  const handleFacebookSignUp = async () => {
+    setError(null)
+    startTransition(() => {
+      void (async () => {
+        try {
+          await loginWithFacebook()
+          toast.success('Account created successfully!', {
+            description: 'Redirecting to dashboard...',
+          })
+          router.push(callbackUrl)
+        } catch (e) {
+          const message = e instanceof Error ? e.message : 'Facebook sign-up failed'
+          setError(message)
+          toast.error('Sign-up failed', {
+            description: message,
+          })
+        }
+      })()
     })
   }
 
@@ -126,20 +171,34 @@ function SignUpPageInner() {
               <div className="space-y-3">
                 <Button
                   type="button"
-                  variant="default"
-                  className="relative w-full overflow-hidden bg-gradient-to-r from-primary/90 via-primary/70 to-primary/90 text-primary-foreground shadow-lg transition-shadow duration-300 hover:shadow-xl focus-visible:ring-2 focus-visible:ring-primary/40"
-                  disabled={!googleEnabled}
-                  onClick={() => (googleEnabled ? void signIn('google', { callbackUrl }) : undefined)}
+                  onClick={handleGoogleSignUp}
+                  disabled={isPending}
+                  className="relative w-full overflow-hidden bg-slate-900/40 text-white border border-white/20 backdrop-blur-xl transition hover:bg-slate-800/60"
                 >
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute -inset-1 bg-gradient-to-r from-primary/40 via-primary/20 to-primary/40 opacity-60 blur-lg animate-pulse"
-                  />
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 bg-gradient-to-r from-primary/20 via-transparent to-primary/20 opacity-0 transition-opacity duration-300 hover:opacity-100"
-                  />
-                  <span className="relative">Continue with Google</span>
+                  <Chrome className="mr-2 h-4 w-4" />
+                  <span className="relative">Sign up with Google</span>
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={handleGithubSignUp}
+                  disabled={isPending}
+                  className="relative w-full overflow-hidden bg-slate-900/40 text-white border border-white/20 backdrop-blur-xl transition hover:bg-slate-800/60"
+                >
+                  <Github className="mr-2 h-4 w-4" />
+                  <span className="relative">Sign up with GitHub</span>
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={handleFacebookSignUp}
+                  disabled={isPending}
+                  className="relative w-full overflow-hidden bg-slate-900/40 text-white border border-white/20 backdrop-blur-xl transition hover:bg-slate-800/60"
+                >
+                  <svg className="mr-2 h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                  </svg>
+                  <span className="relative">Sign up with Facebook</span>
                 </Button>
 
                 <div className="relative">
@@ -151,10 +210,15 @@ function SignUpPageInner() {
                   </div>
                 </div>
 
-                <form onSubmit={onSubmit} className="space-y-3">
+                <form onSubmit={handleEmailSignUp} className="space-y-3">
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Name (optional)</label>
-                    <Input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+                    <Input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      autoComplete="name"
+                      placeholder="John Doe"
+                    />
                   </div>
 
                   <div className="space-y-2">
@@ -164,6 +228,7 @@ function SignUpPageInner() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       autoComplete="email"
+                      placeholder="your@email.com"
                     />
                   </div>
 
@@ -174,6 +239,19 @@ function SignUpPageInner() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       autoComplete="new-password"
+                      placeholder="••••••••"
+                    />
+                    <p className="text-xs text-muted-foreground">Minimum 8 characters</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Confirm Password</label>
+                    <Input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      autoComplete="new-password"
+                      placeholder="••••••••"
                     />
                   </div>
 
