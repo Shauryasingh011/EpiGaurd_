@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useTranslation } from "react-i18next"
-import { signOut, useSession } from "next-auth/react"
+import { useAuth } from "@/components/auth-session-provider"
+import { logoutUser } from "@/lib/firebase/auth"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -14,7 +15,7 @@ import { LanguageSwitcher } from "@/components/language-switcher"
 
 export function SettingsPage() {
   const { t } = useTranslation()
-  const { data: session } = useSession()
+  const { user: session } = useAuth()
   const [preferences, setPreferences] = useState<UserPreferences>(preferencesStorage.get())
 
   const handleToggleThreshold = (riskLevel: "Low" | "Medium" | "High" | "Critical") => {
@@ -68,15 +69,18 @@ export function SettingsPage() {
               {t("settings.title")}
             </h1>
             <p className="text-muted-foreground mt-2">{t("settings.subtitle")}</p>
-            {session?.user?.email && (
-              <p className="text-xs text-muted-foreground mt-1">Signed in as {session.user.email}</p>
+            {session?.email && (
+              <p className="text-xs text-muted-foreground mt-1">Signed in as {session.email}</p>
             )}
           </div>
 
           {session ? (
             <Button
               variant="outline"
-              onClick={() => signOut({ callbackUrl: "/sign-in" })}
+              onClick={async () => {
+                await logoutUser()
+                window.location.href = "/sign-in"
+              }}
               className="shrink-0"
             >
               Sign out

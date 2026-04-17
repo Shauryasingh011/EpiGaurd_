@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useSession } from "next-auth/react"
+import { useAuth } from "@/components/auth-session-provider"
 import { LocateFixed, X } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -30,7 +30,7 @@ type Props = {
 }
 
 export function TelegramAlertsCard({ onClose }: Props) {
-  const { data: session } = useSession()
+  const { user: session } = useAuth()
 
   const [preferences, setPreferences] = useState<UserPreferences>(preferencesStorage.get())
 
@@ -45,7 +45,7 @@ export function TelegramAlertsCard({ onClose }: Props) {
     let cancelled = false
 
     const load = async () => {
-      if (!session?.user?.id) {
+      if (!session?.id) {
         setTgStatus(null)
         return
       }
@@ -80,7 +80,7 @@ export function TelegramAlertsCard({ onClose }: Props) {
     return () => {
       cancelled = true
     }
-  }, [session?.user?.id])
+  }, [session?.id])
 
   const saveTelegramSettings = async (updates: Record<string, any>): Promise<string | null> => {
     setTgLoading(true)
